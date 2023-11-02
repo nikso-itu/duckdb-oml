@@ -21,6 +21,15 @@ CREATE TABLE IF NOT EXISTS Power_Consumption (
 
 Alternatively the function `OmlGen(filename)` can be used to dynamically create a table with a schema determined by the metadata of the OML file. The data of the OML file will then be loaded into the new table.
 
+## Running the Extension
+
+The extension is automatically loaded into DuckDB after this project is built. This means that DuckDB should simply be run as normal, that is:
+```
+./build/<release|debug>/duckdb
+```
+
+When DuckDB is running, use the commands of the previous section.
+
 ## Building the Extension
 
 The extension can be build by running the command:
