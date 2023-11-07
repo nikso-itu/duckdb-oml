@@ -12,32 +12,7 @@
 #include <fstream>
 #include <iostream>
 
-// OpenSSL linked through vcpkg
-#include <openssl/opensslv.h>
-
 namespace duckdb {
-
-inline void OmlPowerConsumptionLoad(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
-    // initialize the the DataChunk with the expected schema (column types)
-    output.InitializeEmpty(vector<LogicalType>{
-        LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
-        LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::FLOAT,
-        LogicalType::FLOAT, LogicalType::FLOAT});
-
-    // extract filename and open OML file
-    std::string filename = data_p.bind_data->Cast<string>();
-    std::ifstream file(filename);
-
-    if (!file.is_open()) {
-        throw InternalException("Could not open file");
-    }
-
-    // create table if it doesn't exist
-    CreateTable(context);
-
-    // parse the OML file
-    ParseOML(context, file, output);
-}
 
 void CreateTable(ClientContext &context) {
     // create the Power_Consumption table if it doesn't already exist.
@@ -79,10 +54,33 @@ void ParseOML(ClientContext &context, std::ifstream &file, DataChunk &output) {
         // insert values into table
         char query[1024];
         std::sprintf(query, "INSERT INTO Power_Consumption VALUES ('%s', '%s', '%s', '%s', '%s', '%f', '%f', '%f')",
-                     fields[0], fields[1], fields[2], fields[3], fields[4], std::stof(fields[5]), std::stof(fields[6]), std::stof(fields[7]));
+                     fields[0].c_str(), fields[1].c_str(), fields[2].c_str(), fields[3].c_str(), fields[4].c_str(),
+                     std::stof(fields[5]), std::stof(fields[6]), std::stof(fields[7]));
 
         context.Query(query, false);
     }
+}
+
+inline void OmlPowerConsumptionLoad(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
+    // initialize the the DataChunk with the expected schema (column types)
+    output.InitializeEmpty(vector<LogicalType>{
+        LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
+        LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::FLOAT,
+        LogicalType::FLOAT, LogicalType::FLOAT});
+
+    // extract filename and open OML file
+    std::string filename = data_p.bind_data->Cast<string>();
+    std::ifstream file(filename);
+
+    if (!file.is_open()) {
+        throw InternalException("Could not open file");
+    }
+
+    // create table if it doesn't exist
+    CreateTable(context);
+
+    // parse the OML file
+    ParseOML(context, file, output);
 }
 
 static void LoadInternal(DatabaseInstance &instance) {
