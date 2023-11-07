@@ -18,6 +18,12 @@
 namespace duckdb {
 
 inline void OmlPowerConsumptionLoad(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
+    // initialize the the DataChunk with the expected schema (column types)
+    output.InitializeEmpty(vector<LogicalType>{
+        LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
+        LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::FLOAT,
+        LogicalType::FLOAT, LogicalType::FLOAT});
+
     // extract filename and open OML file
     std::string filename = data_p.bind_data->Cast<string>();
     std::ifstream file(filename);
@@ -30,17 +36,7 @@ inline void OmlPowerConsumptionLoad(ClientContext &context, TableFunctionInput &
     CreateTable(context);
 
     // parse the OML file
-    // insert results into columns of output: output.data[column_id] = data
-    // use SetCardinality on the output to specify the expected number of rows
-
-    // insert into the output chunk by accessing the vector:
-    //      output.data[column].setValue(row, value)
-
-    // initialize the the DataChunk with the expected schema (column types)
-    output.InitializeEmpty(vector<LogicalType>{
-        LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
-        LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::FLOAT,
-        LogicalType::FLOAT, LogicalType::FLOAT});
+    ParseOML(context, file, output);
 }
 
 void CreateTable(ClientContext &context) {
@@ -58,14 +54,35 @@ void CreateTable(ClientContext &context) {
     context.Query(create_table_query, false);
 }
 
-void ParseOML(ClientContext &context, std::ifstream &file, ColumnDataCollection &result) {
+void ParseOML(ClientContext &context, std::ifstream &file, DataChunk &output) {
     // parse line of OML
-    // append line to ColumnDataCollection
-    // append ColumnDataCollection to Table
-}
+    std::string line;                // buffer for a line
+    std::getline(file, line);        // read line and store in buffer
+    std::istringstream iss(line);    // split line
+    std::string field;               // buffer for a field
+    std::vector<std::string> fields; // buffer for vector of all fields from line
+    // read individual space-separated fields ('field') from the line and append them to the fields vector.
+    while (iss >> field) {
+        fields.push_back(field);
+    }
+    // insert field values into output
+    if (fields.size() == 8) {
+        output.SetValue(0, 0, fields[0]);
+        output.SetValue(0, 1, fields[1]);
+        output.SetValue(0, 2, fields[2]);
+        output.SetValue(0, 3, fields[3]);
+        output.SetValue(0, 4, fields[4]);
+        output.SetValue(0, 5, std::stof(fields[5]));
+        output.SetValue(0, 6, std::stof(fields[6]));
+        output.SetValue(0, 7, std::stof(fields[7]));
 
-void LoadChunk(ClientContext &context, DataChunk &chunk, ColumnDataCollection &result) {
-    // append line to ColumnDataCollection
+        // insert values into table
+        char query[1024];
+        std::sprintf(query, "INSERT INTO Power_Consumption VALUES ('%s', '%s', '%s', '%s', '%s', '%f', '%f', '%f')",
+                     fields[0], fields[1], fields[2], fields[3], fields[4], std::stof(fields[5]), std::stof(fields[6]), std::stof(fields[7]));
+
+        context.Query(query, false);
+    }
 }
 
 static void LoadInternal(DatabaseInstance &instance) {
