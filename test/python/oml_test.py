@@ -16,8 +16,3 @@ def test_oml(duckdb_conn):
     duckdb_conn.execute("SELECT oml('Sam') as value;");
     res = duckdb_conn.fetchall()
     assert(res[0][0] == "Oml Sam 🐥");
-
-def test_oml_openssl_version_test(duckdb_conn):
-    duckdb_conn.execute("SELECT oml_openssl_version('Michael');");
-    res = duckdb_conn.fetchall()
-    assert(res[0][0][0:51] == "Oml Michael, my linked OpenSSL version is OpenSSL");

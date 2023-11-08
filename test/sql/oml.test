@@ -16,8 +16,3 @@ query I
 SELECT oml('Sam');
 ----
 Oml Sam 🐥
-
-query I
-SELECT oml_openssl_version('Michael');
-----
-<REGEX>:Oml Michael, my linked OpenSSL version is OpenSSL.*
