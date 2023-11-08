@@ -61,13 +61,23 @@ void ParseOML(ClientContext &context, std::ifstream &file, DataChunk &output) {
     }
 }
 
-inline void OmlPowerConsumptionLoad(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
-    // initialize the the DataChunk with the expected schema (column types)
-    output.InitializeEmpty(vector<LogicalType>{
-        LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
-        LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::FLOAT,
-        LogicalType::FLOAT, LogicalType::FLOAT});
+inline unique_ptr<FunctionData> OmlPowerConsumptionLoadBind(ClientContext &context, TableFunctionBindInput &input,
+                                                            vector<LogicalType> &return_types, vector<string> &names) {
+    // expected input types
+    // if (input.input_table_types.size() != 1 || input.input_table_types[0].id() != LogicalTypeId::VARCHAR) {
+    //     throw BinderException("Power_Consumption_load requires a single VARCHAR argument");
+    // }
 
+    // expected output schema (column types)
+    return_types = {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
+                    LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::FLOAT,
+                    LogicalType::FLOAT, LogicalType::FLOAT};
+    names = {"experiment_id", "node_id", "node_id_seq", "time_sec", "time_usec", "power", "current", "voltage"};
+
+    return nullptr;
+}
+
+inline void OmlPowerConsumptionLoad(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
     // extract filename and open OML file
     std::string filename = data_p.bind_data->Cast<string>();
     std::ifstream file(filename);
@@ -85,7 +95,7 @@ inline void OmlPowerConsumptionLoad(ClientContext &context, TableFunctionInput &
 
 static void LoadInternal(DatabaseInstance &instance) {
     // Register table function
-    auto oml_power_consumption_load = TableFunction("Power_Consumption_load", {LogicalType::VARCHAR}, OmlPowerConsumptionLoad);
+    auto oml_power_consumption_load = TableFunction("Power_Consumption_load", {LogicalType::VARCHAR}, OmlPowerConsumptionLoad, OmlPowerConsumptionLoadBind);
     ExtensionUtil::RegisterFunction(instance, oml_power_consumption_load);
 }
 
