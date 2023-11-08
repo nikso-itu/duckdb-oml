@@ -26,7 +26,12 @@ void CreateTable(ClientContext &context) {
                                       "current REAL NOT NULL,"
                                       "voltage REAL NOT NULL);";
 
-    context.Query(create_table_query, false);
+    unique_ptr<QueryResult> result = context.Query(create_table_query, true); // Halts here
+
+    // fail of query was not successful
+    if (!result) {
+        throw InternalException(result->ToString());
+    };
 }
 
 void ParseOML(ClientContext &context, std::ifstream &file, DataChunk &output) {
@@ -64,9 +69,13 @@ void ParseOML(ClientContext &context, std::ifstream &file, DataChunk &output) {
 inline unique_ptr<FunctionData> OmlPowerConsumptionLoadBind(ClientContext &context, TableFunctionBindInput &input,
                                                             vector<LogicalType> &return_types, vector<string> &names) {
     // expected input types
-    // if (input.input_table_types.size() != 1 || input.input_table_types[0].id() != LogicalTypeId::VARCHAR) {
-    //     throw BinderException("Power_Consumption_load requires a single VARCHAR argument");
-    // }
+    if (input.inputs.size() != 1 || input.inputs[0].type().id() != LogicalTypeId::VARCHAR) {
+        throw BinderException("Power_Consumption_load requires a single VARCHAR argument");
+    }
+
+    // bind inputs
+    auto result = make_uniq<BaseOMLData>();
+    result->file = StringValue::Get(input.inputs[0]);
 
     // expected output schema (column types)
     return_types = {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
@@ -74,13 +83,15 @@ inline unique_ptr<FunctionData> OmlPowerConsumptionLoadBind(ClientContext &conte
                     LogicalType::FLOAT, LogicalType::FLOAT};
     names = {"experiment_id", "node_id", "node_id_seq", "time_sec", "time_usec", "power", "current", "voltage"};
 
-    return nullptr;
+    return std::move(result);
 }
 
 inline void OmlPowerConsumptionLoad(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
-    // extract filename and open OML file
-    std::string filename = data_p.bind_data->Cast<string>();
-    std::ifstream file(filename);
+    // extract bind data
+    auto &bind_data = data_p.bind_data->CastNoConst<BaseOMLData>();
+
+    // open OML file
+    std::ifstream file(bind_data.file);
 
     if (!file.is_open()) {
         throw InternalException("Could not open file");
