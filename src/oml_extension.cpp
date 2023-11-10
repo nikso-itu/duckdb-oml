@@ -47,14 +47,16 @@ void ParseOML(ClientContext &context, std::ifstream &file, DataChunk &output) {
     }
     // insert field values into output
     if (fields.size() == 8) {
-        output.SetValue(0, 0, fields[0]);
-        output.SetValue(0, 1, fields[1]);
-        output.SetValue(0, 2, fields[2]);
-        output.SetValue(0, 3, fields[3]);
-        output.SetValue(0, 4, fields[4]);
-        output.SetValue(0, 5, std::stof(fields[5]));
-        output.SetValue(0, 6, std::stof(fields[6]));
-        output.SetValue(0, 7, std::stof(fields[7]));
+        output.SetValue(0, 0, duckdb::Value(fields[0]));
+        output.SetValue(0, 1, duckdb::Value(fields[1]));
+        output.SetValue(0, 2, duckdb::Value(fields[2]));
+        output.SetValue(0, 3, duckdb::Value(fields[3]));
+        output.SetValue(0, 4, duckdb::Value(fields[4]));
+        output.SetValue(0, 5, duckdb::Value(std::stof(fields[5])));
+        output.SetValue(0, 6, duckdb::Value(std::stof(fields[6])));
+        output.SetValue(0, 7, duckdb::Value(std::stof(fields[7])));
+
+        output.SetCardinality(output.size());
 
         // insert values into table
         char query[1024];
