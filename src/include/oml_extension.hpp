@@ -15,6 +15,9 @@ struct BaseOMLData : public TableFunctionData {
     }
     // file path of the OML file to read
     string file;
+
+    // whether the OML file is finished reading or not
+    bool finished_reading;
 };
 
 } // namespace duckdb

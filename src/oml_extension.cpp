@@ -34,40 +34,6 @@ void CreateTable(ClientContext &context) {
     };
 }
 
-void ParseOML(ClientContext &context, std::ifstream &file, DataChunk &output) {
-    // parse line of OML
-    std::string line;                // buffer for a line
-    std::getline(file, line);        // read line and store in buffer
-    std::istringstream iss(line);    // split line
-    std::string field;               // buffer for a field
-    std::vector<std::string> fields; // buffer for vector of all fields from line
-    // read individual space-separated fields ('field') from the line and append them to the fields vector.
-    while (iss >> field) {
-        fields.push_back(field);
-    }
-    // insert field values into output
-    if (fields.size() == 8) {
-        output.SetValue(0, 0, duckdb::Value(fields[0]));
-        output.SetValue(0, 1, duckdb::Value(fields[1]));
-        output.SetValue(0, 2, duckdb::Value(fields[2]));
-        output.SetValue(0, 3, duckdb::Value(fields[3]));
-        output.SetValue(0, 4, duckdb::Value(fields[4]));
-        output.SetValue(0, 5, duckdb::Value(std::stof(fields[5])));
-        output.SetValue(0, 6, duckdb::Value(std::stof(fields[6])));
-        output.SetValue(0, 7, duckdb::Value(std::stof(fields[7])));
-
-        output.SetCardinality(output.size());
-
-        // insert values into table
-        char query[1024];
-        std::sprintf(query, "INSERT INTO Power_Consumption VALUES ('%s', '%s', '%s', '%s', '%s', '%f', '%f', '%f')",
-                     fields[0].c_str(), fields[1].c_str(), fields[2].c_str(), fields[3].c_str(), fields[4].c_str(),
-                     std::stof(fields[5]), std::stof(fields[6]), std::stof(fields[7]));
-
-        context.Query(query, false);
-    }
-}
-
 inline unique_ptr<FunctionData> OmlPowerConsumptionLoadBind(ClientContext &context, TableFunctionBindInput &input,
                                                             vector<LogicalType> &return_types, vector<string> &names) {
     // expected input types
@@ -78,6 +44,7 @@ inline unique_ptr<FunctionData> OmlPowerConsumptionLoadBind(ClientContext &conte
     // bind inputs
     auto result = make_uniq<BaseOMLData>();
     result->file = StringValue::Get(input.inputs[0]);
+    result->finished_reading = false;
 
     // expected output schema (column types)
     return_types = {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
@@ -100,10 +67,41 @@ inline void OmlPowerConsumptionLoad(ClientContext &context, TableFunctionInput &
     }
 
     // create table if it doesn't exist
-    CreateTable(context);
+    // CreateTable(context);
 
     // parse the OML file
-    ParseOML(context, file, output);
+    std::string line;                // buffer for a line
+    std::getline(file, line);        // read line and store in buffer
+    std::istringstream iss(line);    // split line
+    std::string field;               // buffer for a field
+    std::vector<std::string> fields; // buffer for vector of all fields from line
+    // // read individual space-separated fields ('field') from the line and append them to the fields vector.
+    while (iss >> field) {
+        fields.push_back(field);
+    }
+    // insert field values into output
+    idx_t row_count = 0;
+    if (!bind_data.finished_reading && fields.size() == 8) {
+        output.SetValue(0, row_count, Value(fields[0]));
+        output.SetValue(1, row_count, Value(fields[1]));
+        output.SetValue(2, row_count, Value(fields[2]));
+        output.SetValue(3, row_count, Value(fields[3]));
+        output.SetValue(4, row_count, Value(fields[4]));
+        output.SetValue(5, row_count, Value::FLOAT(std::stof(fields[5])));
+        output.SetValue(6, row_count, Value::FLOAT(std::stof(fields[6])));
+        output.SetValue(7, row_count, Value::FLOAT(std::stof(fields[7])));
+
+        // increment row count
+        row_count++;
+
+        // insert values into table
+
+        output.SetCardinality(row_count);
+
+        bind_data.finished_reading = true;
+    }
+
+    file.close();
 }
 
 static void LoadInternal(DatabaseInstance &instance) {
