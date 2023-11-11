@@ -26,6 +26,8 @@ void CreateTable(ClientContext &context) {
                                       "current REAL NOT NULL,"
                                       "voltage REAL NOT NULL);";
 
+    // TODO: Get system catalog -> create table using CreateTableInfo (also create a schema in the bind function)
+
     unique_ptr<QueryResult> result = context.Query(create_table_query, true); // Halts here
 
     // fail of query was not successful
@@ -59,6 +61,10 @@ inline void OmlPowerConsumptionLoad(ClientContext &context, TableFunctionInput &
     // extract bind data
     auto &bind_data = data_p.bind_data->CastNoConst<BaseOMLData>();
 
+    // return if we are finished reading
+    if (bind_data.finished_reading)
+        return;
+
     // open OML file
     std::ifstream file(bind_data.file);
 
@@ -69,38 +75,45 @@ inline void OmlPowerConsumptionLoad(ClientContext &context, TableFunctionInput &
     // create table if it doesn't exist
     // CreateTable(context);
 
-    // parse the OML file
-    std::string line;                // buffer for a line
-    std::getline(file, line);        // read line and store in buffer
-    std::istringstream iss(line);    // split line
-    std::string field;               // buffer for a field
-    std::vector<std::string> fields; // buffer for vector of all fields from line
-    // // read individual space-separated fields ('field') from the line and append them to the fields vector.
-    while (iss >> field) {
-        fields.push_back(field);
+    std::string line; // buffer for a line
+
+    // Skip the initial metadata
+    for (int i = 0; i < 9; i++) {
+        if (!std::getline(file, line)) {
+            throw InternalException("File doesn't contain the expected metadata");
+        }
     }
-    // insert field values into output
+
     idx_t row_count = 0;
-    if (!bind_data.finished_reading && fields.size() == 8) {
-        output.SetValue(0, row_count, Value(fields[0]));
-        output.SetValue(1, row_count, Value(fields[1]));
-        output.SetValue(2, row_count, Value(fields[2]));
-        output.SetValue(3, row_count, Value(fields[3]));
-        output.SetValue(4, row_count, Value(fields[4]));
-        output.SetValue(5, row_count, Value::FLOAT(std::stof(fields[5])));
-        output.SetValue(6, row_count, Value::FLOAT(std::stof(fields[6])));
-        output.SetValue(7, row_count, Value::FLOAT(std::stof(fields[7])));
+    while (std::getline(file, line)) {
+        std::istringstream iss(line);    // split line
+        std::string field;               // buffer for a field
+        std::vector<std::string> fields; // buffer for vector of all fields from line
+        // // read individual space-separated fields ('field') from the line and append them to the fields vector.
+        while (iss >> field) {
+            fields.push_back(field);
+        }
 
-        // increment row count
-        row_count++;
+        if (fields.size() == 8) {
+            // insert field values into output
+            output.SetValue(0, row_count, Value(fields[0]));
+            output.SetValue(1, row_count, Value(fields[1]));
+            output.SetValue(2, row_count, Value(fields[2]));
+            output.SetValue(3, row_count, Value(fields[3]));
+            output.SetValue(4, row_count, Value(fields[4]));
+            output.SetValue(5, row_count, Value::FLOAT(std::stof(fields[5])));
+            output.SetValue(6, row_count, Value::FLOAT(std::stof(fields[6])));
+            output.SetValue(7, row_count, Value::FLOAT(std::stof(fields[7])));
 
-        // insert values into table
+            // increment row count
+            row_count++;
 
-        output.SetCardinality(row_count);
-
-        bind_data.finished_reading = true;
+            // insert values into table
+        }
     }
 
+    output.SetCardinality(row_count);
+    bind_data.finished_reading = true;
     file.close();
 }
 
