@@ -5,39 +5,37 @@
 #include <duckdb/parser/parsed_data/create_scalar_function_info.hpp>
 
 #include "duckdb.hpp"
+#include "duckdb/catalog/catalog.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/main/extension_util.hpp"
+#include "duckdb/parser/column_definition.hpp"
+#include "duckdb/parser/constraints/not_null_constraint.hpp"
+#include "duckdb/parser/parsed_data/create_table_info.hpp"
 #include <fstream>
 #include <iostream>
 
 namespace duckdb {
 
-void CreateTable(ClientContext &context) {
-    // create the Power_Consumption table if it doesn't already exist.
-    const string create_table_query = "CREATE TABLE IF NOT EXISTS Power_Consumption ("
-                                      "experiment_id VARCHAR,"
-                                      "node_id VARCHAR,"
-                                      "node_id_seq VARCHAR,"
-                                      "time_sec VARCHAR NOT NULL,"
-                                      "time_usec VARCHAR NOT NULL,"
-                                      "power REAL NOT NULL,"
-                                      "current REAL NOT NULL,"
-                                      "voltage REAL NOT NULL);";
-
-    // TODO: Get system catalog -> create table using CreateTableInfo (also create a schema in the bind function)
-
-    unique_ptr<QueryResult> result = context.Query(create_table_query, true); // Halts here
-
-    // fail of query was not successful
-    if (!result) {
-        throw InternalException(result->ToString());
-    };
+void CreateTable(ClientContext &context, BaseOMLData &bind_data) {
+    auto info = make_uniq<CreateTableInfo>();
+    info->schema = bind_data.schema;
+    info->table = bind_data.table;
+    info->on_conflict = OnCreateConflict::IGNORE_ON_CONFLICT;
+    info->temporary = false;
+    for (idx_t i = 0; i < bind_data.column_types.size(); i++) {
+        info->columns.AddColumn(ColumnDefinition(bind_data.column_names[i], bind_data.column_types[i]));
+        // if column has 'not null' constraint, set it
+        if (bind_data.not_null_constraint[i])
+            info->constraints.push_back(make_uniq<NotNullConstraint>(LogicalIndex(i)));
+    }
+    auto &catalog = Catalog::GetCatalog(context, bind_data.catalog);
+    catalog.CreateTable(context, std::move(info));
 }
 
-inline unique_ptr<FunctionData> OmlPowerConsumptionLoadBind(ClientContext &context, TableFunctionBindInput &input,
-                                                            vector<LogicalType> &return_types, vector<string> &names) {
+inline unique_ptr<FunctionData> OmlLoadBind(ClientContext &context, TableFunctionBindInput &input,
+                                            vector<LogicalType> &return_types, vector<string> &names) {
     // expected input types
     if (input.inputs.size() != 1 || input.inputs[0].type().id() != LogicalTypeId::VARCHAR) {
         throw BinderException("Power_Consumption_load requires a single VARCHAR argument");
@@ -47,6 +45,9 @@ inline unique_ptr<FunctionData> OmlPowerConsumptionLoadBind(ClientContext &conte
     auto result = make_uniq<BaseOMLData>();
     result->file = StringValue::Get(input.inputs[0]);
     result->finished_reading = false;
+    result->catalog = ""; // default main-memory catalog is ""
+    result->schema = "main";
+    result->table = "Power_Consumption";
 
     // expected output schema (column types)
     return_types = {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
@@ -54,10 +55,14 @@ inline unique_ptr<FunctionData> OmlPowerConsumptionLoadBind(ClientContext &conte
                     LogicalType::FLOAT, LogicalType::FLOAT};
     names = {"experiment_id", "node_id", "node_id_seq", "time_sec", "time_usec", "power", "current", "voltage"};
 
+    result->column_names = names;
+    result->column_types = return_types;
+    result->not_null_constraint = {false, false, false, true, true, true, true, true};
+
     return std::move(result);
 }
 
-inline void OmlPowerConsumptionLoad(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
+inline void OmlLoad(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
     // extract bind data
     auto &bind_data = data_p.bind_data->CastNoConst<BaseOMLData>();
 
@@ -73,7 +78,7 @@ inline void OmlPowerConsumptionLoad(ClientContext &context, TableFunctionInput &
     }
 
     // create table if it doesn't exist
-    // CreateTable(context);
+    CreateTable(context, bind_data);
 
     std::string line; // buffer for a line
 
@@ -119,7 +124,7 @@ inline void OmlPowerConsumptionLoad(ClientContext &context, TableFunctionInput &
 
 static void LoadInternal(DatabaseInstance &instance) {
     // Register table function
-    auto oml_power_consumption_load = TableFunction("Power_Consumption_load", {LogicalType::VARCHAR}, OmlPowerConsumptionLoad, OmlPowerConsumptionLoadBind);
+    auto oml_power_consumption_load = TableFunction("Power_Consumption_load", {LogicalType::VARCHAR}, OmlLoad, OmlLoadBind);
     ExtensionUtil::RegisterFunction(instance, oml_power_consumption_load);
 }
 
