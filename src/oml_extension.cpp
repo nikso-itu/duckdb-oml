@@ -23,6 +23,7 @@ struct oml_append_information {
 };
 
 void append_oml_chunk(oml_append_information &info, DataChunk &data) {
+    // TODO: Take row of data, and find out how to cleanly append a row.
     auto &append_info = info.appender;
     append_info->AppendDataChunk(data);
 }
@@ -147,6 +148,9 @@ inline void OmlLoad(ClientContext &context, TableFunctionInput &data_p, DataChun
                 output.SetValue(i, row_count, Value::FLOAT(std::stof(fields[i])));
             }
 
+            // TODO: Remove 'chunk' and instead append each row after it is parsed.
+            // TODO: Dont return all the data in the output.
+
             // increment row count
             row_count++;
         }
@@ -157,6 +161,8 @@ inline void OmlLoad(ClientContext &context, TableFunctionInput &data_p, DataChun
 
     // insert values into table
     AppendData(context, data_p, chunk);
+
+    // TODO: Create view of data.
 
     bind_data.finished_reading = true;
     file.close();
