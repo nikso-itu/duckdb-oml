@@ -12,7 +12,9 @@
 #include "duckdb/main/extension_util.hpp"
 #include "duckdb/parser/column_definition.hpp"
 #include "duckdb/parser/constraints/not_null_constraint.hpp"
+#include "duckdb/parser/parsed_data/create_sequence_info.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
+#include "duckdb/parser/parsed_data/create_view_info.hpp"
 #include <fstream>
 #include <iostream>
 
@@ -29,6 +31,7 @@ void append_oml_chunk(oml_append_information &info, DataChunk &data) {
 }
 
 void AppendData(ClientContext &context, TableFunctionInput &data_p, DataChunk &data) {
+    // TODO: Take the following 3 fields as parameters, such that they dont have to be recreated for every line
     auto &bind_data = data_p.bind_data->CastNoConst<BaseOMLData>();
     auto &catalog = Catalog::GetCatalog(context, bind_data.catalog);
 
@@ -57,6 +60,40 @@ void CreateTable(ClientContext &context, BaseOMLData &bind_data) {
     }
     auto &catalog = Catalog::GetCatalog(context, bind_data.catalog);
     catalog.CreateTable(context, std::move(info));
+}
+
+void CreateSequence(ClientContext &context, Catalog &catalog, string schema) {
+    auto seq_info = make_uniq<CreateSequenceInfo>();
+    // CreateInfo
+    seq_info->schema = schema;
+    seq_info->on_conflict = OnCreateConflict::IGNORE_ON_CONFLICT;
+    seq_info->temporary = false;
+    // CreateSequenceInfo
+    seq_info->name = "Power_Consumption_id_seq";
+    seq_info->usage_count = UINT64_MAX;
+    seq_info->increment = 1;
+    seq_info->min_value = 0;
+    seq_info->max_value = INT64_MAX;
+    seq_info->start_value = 0;
+
+    catalog.CreateSequence(context, *seq_info);
+}
+
+void CreateOmlLoadView(ClientContext &context, Catalog &catalog, string schema) {
+    auto view_info = make_uniq<CreateViewInfo>();
+    view_info->on_conflict = OnCreateConflict::IGNORE_ON_CONFLICT;
+    view_info->temporary = false;
+    view_info->view_name = "PC";
+
+    string sql = "CREATE VIEW PC AS (SELECT nextval('power_consumption_id_seq') AS id, "
+                 "cast(time_sec AS real) + cast(time_usec AS real) AS ts, "
+                 "power, current, voltage "
+                 "FROM power_consumption);";
+
+    view_info = view_info->FromCreateView(context, sql);
+    view_info->schema = schema;
+
+    catalog.CreateView(context, *view_info);
 }
 
 inline unique_ptr<FunctionData> OmlLoadBind(ClientContext &context, TableFunctionBindInput &input,
@@ -159,10 +196,16 @@ inline void OmlLoad(ClientContext &context, TableFunctionInput &data_p, DataChun
     chunk.SetCardinality(row_count);
     output.SetCardinality(row_count);
 
+    // obtain catalog
+    auto &catalog = Catalog::GetCatalog(context, bind_data.catalog);
+
     // insert values into table
+    auto &tbl_catalog = catalog.GetEntry<TableCatalogEntry>(context, bind_data.schema, bind_data.table);
     AppendData(context, data_p, chunk);
 
-    // TODO: Create view of data.
+    // create sequence and view of data.
+    CreateSequence(context, catalog, bind_data.schema);
+    CreateOmlLoadView(context, catalog, bind_data.schema);
 
     bind_data.finished_reading = true;
     file.close();
