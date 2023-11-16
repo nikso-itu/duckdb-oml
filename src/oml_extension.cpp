@@ -17,6 +17,7 @@
 #include "duckdb/parser/parsed_data/create_view_info.hpp"
 #include <fstream>
 #include <iostream>
+#include <utility>
 
 namespace duckdb {
 
@@ -24,22 +25,21 @@ struct oml_append_information {
     duckdb::unique_ptr<InternalAppender> appender;
 };
 
-void append_oml_chunk(oml_append_information &info, DataChunk &data) {
-    // TODO: Take row of data, and find out how to cleanly append a row.
+template <typename Tuple, std::size_t... Is>
+void append_oml_chunk(oml_append_information &info, const Tuple &data, std::index_sequence<Is...>) {
+    // unpack a Tuple of heterogeneous values into the argument list, using a index sequence
     auto &append_info = info.appender;
-    append_info->AppendDataChunk(data);
+    append_info->AppendRow(std::get<Is>(data)...);
 }
 
-void AppendData(ClientContext &context, TableFunctionInput &data_p, DataChunk &data) {
-    // TODO: Take the following 3 fields as parameters, such that they dont have to be recreated for every line
-    auto &bind_data = data_p.bind_data->CastNoConst<BaseOMLData>();
-    auto &catalog = Catalog::GetCatalog(context, bind_data.catalog);
-
-    auto &tbl_catalog = catalog.GetEntry<TableCatalogEntry>(context, bind_data.schema, bind_data.table);
+template <typename... Ts>
+void AppendData(ClientContext &context, BaseOMLData &bind_data, Catalog &catalog,
+                TableCatalogEntry &tbl_catalog, const std::tuple<Ts...> &data) {
     auto append_info = make_uniq<oml_append_information>();
     append_info->appender = make_uniq<InternalAppender>(context, tbl_catalog);
 
-    append_oml_chunk(*append_info, data);
+    // append Tuple of data, and provide index sequence
+    append_oml_chunk(*append_info, data, std::index_sequence_for<Ts...>{});
 
     // Flush any incomplete chunks
     append_info->appender->Flush();
@@ -120,9 +120,9 @@ inline unique_ptr<FunctionData> OmlLoadBind(ClientContext &context, TableFunctio
     result->column_names = column_names;
     result->not_null_constraint = {false, false, false, true, true, true, true, true};
 
-    // define output column names and types
-    return_types = column_types;
-    names = column_names;
+    // define output column names and types - should just output the amount of inserted tuples
+    return_types = {LogicalType::INTEGER};
+    names = {"# tuples inserted in table 'Power_Consumption'"};
 
     return std::move(result);
 }
@@ -142,8 +142,10 @@ inline void OmlLoad(ClientContext &context, TableFunctionInput &data_p, DataChun
         throw InternalException("Could not open file");
     }
 
-    // create table if it doesn't exist
+    // create table and obtain table catalog entry
     CreateTable(context, bind_data);
+    auto &catalog = Catalog::GetCatalog(context, bind_data.catalog);
+    auto &tbl_catalog = catalog.GetEntry<TableCatalogEntry>(context, bind_data.schema, bind_data.table);
 
     std::string line; // buffer for a line
 
@@ -153,10 +155,6 @@ inline void OmlLoad(ClientContext &context, TableFunctionInput &data_p, DataChun
             throw InternalException("File doesn't contain the expected metadata");
         }
     }
-
-    // initialize data chunk for saving parsed oml data
-    DataChunk chunk;
-    chunk.Initialize(context, bind_data.column_types);
 
     idx_t row_count = 0;
     while (std::getline(file, line)) {
@@ -169,39 +167,20 @@ inline void OmlLoad(ClientContext &context, TableFunctionInput &data_p, DataChun
         }
 
         if (fields.size() == 8) {
-            // insert field values into data chunk
-            idx_t varchar_amount = 5;
-            idx_t float_amount = 3;
-
-            // insert VARCHAR's
-            for (idx_t i = 0; i < varchar_amount; i++) {
-                chunk.SetValue(i, row_count, Value(fields[i]));
-                output.SetValue(i, row_count, Value(fields[i]));
-            }
-
-            // insert FLOAT's
-            for (idx_t i = varchar_amount; i < (varchar_amount + float_amount); i++) {
-                chunk.SetValue(i, row_count, Value::FLOAT(std::stof(fields[i])));
-                output.SetValue(i, row_count, Value::FLOAT(std::stof(fields[i])));
-            }
-
-            // TODO: Remove 'chunk' and instead append each row after it is parsed.
-            // TODO: Dont return all the data in the output.
+            // insert parsed data into tuple
+            auto data = std::make_tuple(Value(fields[0]), Value(fields[1]), Value(fields[2]),
+                                        Value(fields[3]), Value(fields[4]), Value::FLOAT(std::stof(fields[5])),
+                                        Value::FLOAT(std::stof(fields[6])), Value::FLOAT(std::stof(fields[7])));
+            // append row to table
+            AppendData(context, bind_data, catalog, tbl_catalog, data);
 
             // increment row count
             row_count++;
         }
     }
 
-    chunk.SetCardinality(row_count);
-    output.SetCardinality(row_count);
-
-    // obtain catalog
-    auto &catalog = Catalog::GetCatalog(context, bind_data.catalog);
-
-    // insert values into table
-    auto &tbl_catalog = catalog.GetEntry<TableCatalogEntry>(context, bind_data.schema, bind_data.table);
-    AppendData(context, data_p, chunk);
+    output.SetValue(0, 0, Value::INTEGER(row_count));
+    output.SetCardinality(1);
 
     // create sequence and view of data.
     CreateSequence(context, catalog, bind_data.schema);
