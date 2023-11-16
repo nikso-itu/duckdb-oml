@@ -66,5 +66,8 @@
         "typeinfo": "cpp",
         "variant": "cpp",
         "*.inc": "cpp"
-    }
+    },
+    "cSpell.words": [
+        "nextval"
+    ]
 }
