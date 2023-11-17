@@ -122,7 +122,7 @@ inline unique_ptr<FunctionData> OmlLoadBind(ClientContext &context, TableFunctio
 
     // define output column names and types - should just output the amount of inserted tuples
     return_types = {LogicalType::INTEGER};
-    names = {"# tuples inserted in table 'Power_Consumption'"};
+    names = {"amount of tuples inserted in 'Power_Consumption'"};
 
     return std::move(result);
 }
@@ -190,6 +190,20 @@ inline void OmlLoad(ClientContext &context, TableFunctionInput &data_p, DataChun
     file.close();
 }
 
+/* Convert a OML type to a DuckDB LogicalType */
+LogicalType getLogicalType(const std::string &type) {
+    if (type == "string") {
+        return LogicalType::VARCHAR;
+    } else if (type == "uint32") {
+        return LogicalType::INTEGER;
+    } else if (type == "int32") {
+        return LogicalType::INTEGER;
+    } else if (type == "double") {
+        return LogicalType::DOUBLE;
+    }
+}
+
+/* Split a string 's' using a 'delimiter' and return a vector with the resulting strings */
 std::vector<std::string> split(const std::string &s, char delimiter) {
     std::vector<std::string> tokens;
     std::string token;
@@ -201,7 +215,7 @@ std::vector<std::string> split(const std::string &s, char delimiter) {
 }
 
 inline unique_ptr<FunctionData> OmlGenBind(ClientContext &context, TableFunctionBindInput &input,
-                                            vector<LogicalType> &return_types, vector<string> &names) {
+                                           vector<LogicalType> &return_types, vector<string> &names) {
     // expected input types
     if (input.inputs.size() != 1 || input.inputs[0].type().id() != LogicalTypeId::VARCHAR) {
         throw BinderException("OmlGen requires a single VARCHAR argument");
@@ -214,28 +228,30 @@ inline unique_ptr<FunctionData> OmlGenBind(ClientContext &context, TableFunction
     result->finished_reading = false;
     result->catalog = ""; // default main-memory catalog is ""
     result->schema = "main";
-    
+
     std::ifstream file(filename);
     std::string line;
     std::string tableName;
-    std::vector<std::string> columnNames;
-    std::vector<LogicalType> columnTypes;
+    vector<string> columnNames;
+    vector<LogicalType> columnTypes;
 
+    // parse OML metadata to read table name, column names, and column types
     for (int i = 0; i < 8; ++i) {
         std::getline(file, line);
         if (line.substr(0, 6) == "schema") {
             auto parts = split(line, ' ');
             if (parts[2] != "_experiment_metadata") {
+                // second schema contains table name
                 tableName = parts[2];
-            }
+            } // rest of line contains 'name:type' pairs
             for (size_t j = 3; j < parts.size(); ++j) {
                 auto columnParts = split(parts[j], ':');
                 columnNames.push_back(columnParts[0]);
-                // columnTypes.push_back(Value::'TYPE'(columnParts[1])); // Replace 'TYPE' with the appropriate conversion function
+                columnTypes.push_back(getLogicalType(columnParts[1]));
             }
         }
     }
-    
+
     result->table = tableName;
     result->column_types = columnTypes;
     result->column_names = columnNames;
@@ -243,7 +259,7 @@ inline unique_ptr<FunctionData> OmlGenBind(ClientContext &context, TableFunction
 
     // define output column names and types - should just output the amount of inserted tuples
     return_types = {LogicalType::INTEGER};
-    names = {"# tuples inserted in table 'Power_Consumption'"};
+    names = {"amount of tuples inserted in '" + tableName + "'"};
 
     return std::move(result);
 }
