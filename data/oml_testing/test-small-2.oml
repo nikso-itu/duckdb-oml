@@ -1,0 +1,17 @@
+protocol: 5
+domain: 375823
+start-time: 1689001665
+sender-id: st_lrwan1_15
+app-name: control_node_measures
+schema: 0 _experiment_metadata subject:string key:string value:string 
+schema: 2 control_node_measures_radio timestamp_s:uint32 timestamp_us:uint32 channel:uint32 rssi:int32 
+content: text
+
+6.921095	2	1	1689001669	909685	11	-91
+6.921713	2	2	1689001670	909600	11	-91
+6.923156	2	3	1689001671	909606	11	-91
+9.913000	2	4	1689001672	909856	11	-91
+9.913131	2	5	1689001673	909832	11	-91
+9.913231	2	6	1689001674	909838	11	-91
+12.920787	2	7	1689001675	909844	11	-91
+12.920941	2	8	1689001676	910308	11	-91
