@@ -161,7 +161,7 @@ inline void OmlLoad(ClientContext &context, TableFunctionInput &data_p, DataChun
         std::istringstream iss(line);    // split line
         std::string field;               // buffer for a field
         std::vector<std::string> fields; // buffer for vector of all fields from line
-        // // read individual space-separated fields ('field') from the line and append them to the fields vector.
+        // read individual space-separated fields ('field') from the line and append them to the fields vector.
         while (iss >> field) {
             fields.push_back(field);
         }
@@ -265,6 +265,42 @@ inline unique_ptr<FunctionData> OmlGenBind(ClientContext &context, TableFunction
 }
 
 inline void OmlGen(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
+    // extract bind data
+    auto &bind_data = data_p.bind_data->CastNoConst<BaseOMLData>();
+
+    // return if we are finished reading
+    if (bind_data.finished_reading)
+        return;
+
+    // open OML file
+    std::ifstream file(bind_data.file);
+
+    if (!file.is_open()) {
+        throw InternalException("Could not open file");
+    }
+
+    // create table and obtain table catalog entry
+    CreateTable(context, bind_data);
+    auto &catalog = Catalog::GetCatalog(context, bind_data.catalog);
+    auto &tbl_catalog = catalog.GetEntry<TableCatalogEntry>(context, bind_data.schema, bind_data.table);
+
+    std::string line;         // buffer for a line
+    std::getline(file, line); // skip empty line
+
+    idx_t row_count = 0;
+    while (std::getline(file, line)) {
+        std::istringstream iss(line);    // split line
+        std::string field;               // buffer for a field
+        std::vector<std::string> fields; // buffer for vector of all fields from line
+        // read individual space-separated fields ('field') from the line and append them to the fields vector.
+        while (iss >> field) {
+            fields.push_back(field);
+        }
+
+        if (fields.size() == bind_data.column_types.size()) {
+            // insert values of line into a tuple and call AppendData
+        }
+    }
 }
 
 static void LoadInternal(DatabaseInstance &instance) {
