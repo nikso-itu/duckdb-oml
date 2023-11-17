@@ -55,7 +55,7 @@ void CreateTable(ClientContext &context, BaseOMLData &bind_data) {
     for (idx_t i = 0; i < bind_data.column_types.size(); i++) {
         info->columns.AddColumn(ColumnDefinition(bind_data.column_names[i], bind_data.column_types[i]));
         // if column has 'not null' constraint, set it
-        if (bind_data.not_null_constraint[i])
+        if (bind_data.not_null_constraint.size() != 0 && bind_data.not_null_constraint[i])
             info->constraints.push_back(make_uniq<NotNullConstraint>(LogicalIndex(i)));
     }
     auto &catalog = Catalog::GetCatalog(context, bind_data.catalog);
@@ -190,10 +190,75 @@ inline void OmlLoad(ClientContext &context, TableFunctionInput &data_p, DataChun
     file.close();
 }
 
+std::vector<std::string> split(const std::string &s, char delimiter) {
+    std::vector<std::string> tokens;
+    std::string token;
+    std::istringstream tokenStream(s);
+    while (std::getline(tokenStream, token, delimiter)) {
+        tokens.push_back(token);
+    }
+    return tokens;
+}
+
+inline unique_ptr<FunctionData> OmlGenBind(ClientContext &context, TableFunctionBindInput &input,
+                                            vector<LogicalType> &return_types, vector<string> &names) {
+    // expected input types
+    if (input.inputs.size() != 1 || input.inputs[0].type().id() != LogicalTypeId::VARCHAR) {
+        throw BinderException("OmlGen requires a single VARCHAR argument");
+    }
+
+    // bind inputs
+    auto result = make_uniq<BaseOMLData>();
+    std::string filename = StringValue::Get(input.inputs[0]);
+    result->file = filename;
+    result->finished_reading = false;
+    result->catalog = ""; // default main-memory catalog is ""
+    result->schema = "main";
+    
+    std::ifstream file(filename);
+    std::string line;
+    std::string tableName;
+    std::vector<std::string> columnNames;
+    std::vector<LogicalType> columnTypes;
+
+    for (int i = 0; i < 8; ++i) {
+        std::getline(file, line);
+        if (line.substr(0, 6) == "schema") {
+            auto parts = split(line, ' ');
+            if (parts[2] != "_experiment_metadata") {
+                tableName = parts[2];
+            }
+            for (size_t j = 3; j < parts.size(); ++j) {
+                auto columnParts = split(parts[j], ':');
+                columnNames.push_back(columnParts[0]);
+                // columnTypes.push_back(Value::'TYPE'(columnParts[1])); // Replace 'TYPE' with the appropriate conversion function
+            }
+        }
+    }
+    
+    result->table = tableName;
+    result->column_types = columnTypes;
+    result->column_names = columnNames;
+    result->not_null_constraint = {};
+
+    // define output column names and types - should just output the amount of inserted tuples
+    return_types = {LogicalType::INTEGER};
+    names = {"# tuples inserted in table 'Power_Consumption'"};
+
+    return std::move(result);
+}
+
+inline void OmlGen(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
+}
+
 static void LoadInternal(DatabaseInstance &instance) {
-    // Register table function
+    // Register OML load table function
     auto oml_power_consumption_load = TableFunction("Power_Consumption_load", {LogicalType::VARCHAR}, OmlLoad, OmlLoadBind);
     ExtensionUtil::RegisterFunction(instance, oml_power_consumption_load);
+
+    // Register OML gen table function
+    auto oml_gen = TableFunction("OmlGen", {LogicalType::VARCHAR}, OmlGen, OmlGenBind);
+    ExtensionUtil::RegisterFunction(instance, oml_gen);
 }
 
 void OmlExtension::Load(DuckDB &db) {
