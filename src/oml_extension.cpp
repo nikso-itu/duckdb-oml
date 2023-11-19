@@ -159,6 +159,10 @@ inline void OmlLoad(ClientContext &context, TableFunctionInput &data_p, DataChun
 
     idx_t row_count = 0;
     while (std::getline(file, line)) {
+        // If the line does not have a '\r' character at the end, add it
+        if (!line.empty() && line.back() != '\r') {
+            line.push_back('\r');
+        }
         std::istringstream iss(line);    // split line
         std::string field;               // buffer for a field
         std::vector<std::string> fields; // buffer for vector of all fields from line
@@ -255,6 +259,10 @@ inline unique_ptr<FunctionData> OmlGenBind(ClientContext &context, TableFunction
     // parse OML metadata to read table name, column names, and column types
     for (int i = 0; i < 8; ++i) {
         std::getline(file, line);
+        // If the line does not have a '\r' character at the end, add it
+        if (!line.empty() && line.back() != '\r') {
+            line.push_back('\r');
+        }
         if (line.substr(0, 6) == "schema") {
             auto parts = split(line, ' ');
             parts.pop_back();
@@ -315,6 +323,10 @@ inline void OmlGen(ClientContext &context, TableFunctionInput &data_p, DataChunk
     idx_t row_count = 0;
     idx_t column_amount = bind_data.column_types.size();
     while (std::getline(file, line)) {
+        // If the line does not have a '\r' character at the end, add it
+        if (!line.empty() && line.back() != '\r') {
+            line.push_back('\r');
+        }
         std::istringstream iss(line);    // split line
         std::string field;               // buffer for a field
         std::vector<std::string> fields; // buffer for vector of all fields from line
