@@ -17,7 +17,6 @@
 #include "duckdb/parser/parsed_data/create_view_info.hpp"
 #include <fstream>
 #include <iostream>
-#include <utility>
 
 namespace duckdb {
 
@@ -25,23 +24,25 @@ struct oml_append_information {
     duckdb::unique_ptr<InternalAppender> appender;
 };
 
-template <typename Tuple, std::size_t... Is>
-void append_oml_chunk(oml_append_information &info, const Tuple &data, std::index_sequence<Is...>) {
-    // unpack a Tuple of heterogeneous values into the argument list, using a index sequence
+void append_oml_chunk(oml_append_information &info, vector<duckdb::Value> &data) {
+    // append each value from a vector, to the table
     auto &append_info = info.appender;
-    append_info->AppendRow(std::get<Is>(data)...);
+    append_info->BeginRow();
+    for (const duckdb::Value value : data) {
+        append_info->Append<duckdb::Value>(value);
+    }
+    append_info->EndRow();
 }
 
-template <typename... Ts>
 void AppendData(ClientContext &context, BaseOMLData &bind_data, Catalog &catalog,
-                TableCatalogEntry &tbl_catalog, const std::tuple<Ts...> &data) {
+                TableCatalogEntry &tbl_catalog, vector<duckdb::Value> &data) {
     auto append_info = make_uniq<oml_append_information>();
     append_info->appender = make_uniq<InternalAppender>(context, tbl_catalog);
 
-    // append Tuple of data, and provide index sequence
-    append_oml_chunk(*append_info, data, std::index_sequence_for<Ts...>{});
+    // append data to table
+    append_oml_chunk(*append_info, data);
 
-    // Flush any incomplete chunks
+    // flush any incomplete chunks
     append_info->appender->Flush();
     append_info->appender.reset();
 }
@@ -167,10 +168,10 @@ inline void OmlLoad(ClientContext &context, TableFunctionInput &data_p, DataChun
         }
 
         if (fields.size() == 8) {
-            // insert parsed data into tuple
-            auto data = std::make_tuple(Value(fields[0]), Value(fields[1]), Value(fields[2]),
-                                        Value(fields[3]), Value(fields[4]), Value::FLOAT(std::stof(fields[5])),
-                                        Value::FLOAT(std::stof(fields[6])), Value::FLOAT(std::stof(fields[7])));
+            // insert parsed data into vector
+            vector<duckdb::Value> data = {Value(fields[0]), Value(fields[1]), Value(fields[2]),
+                                          Value(fields[3]), Value(fields[4]), Value::FLOAT(std::stof(fields[5])),
+                                          Value::FLOAT(std::stof(fields[6])), Value::FLOAT(std::stof(fields[7]))};
             // append row to table
             AppendData(context, bind_data, catalog, tbl_catalog, data);
 
@@ -199,8 +200,24 @@ LogicalType getLogicalType(const std::string &type) {
     } else if (type == "int32") {
         return LogicalType::INTEGER;
     } else if (type == "double") {
-        return LogicalType::DOUBLE;
+        return LogicalType::FLOAT;
     }
+
+    throw InternalException("OML type " + type + " not recognized.");
+}
+
+/* Take a string value 'parsed_val' parsed from OML, and convert it to duckdb::Value
+   using the correct strategy, determined by 'type' */
+duckdb::Value convertToValue(const std::string &parsed_val, LogicalType &type) {
+    if (type == LogicalType::VARCHAR) {
+        return Value(parsed_val);
+    } else if (type == LogicalType::FLOAT) {
+        return Value::FLOAT((std::stof(parsed_val)));
+    } else if (type == LogicalType::INTEGER) {
+        return Value::INTEGER((std::stoi(parsed_val)));
+    }
+
+    throw InternalException("LogicalType " + type.ToString() + " not recognized.");
 }
 
 /* Split a string 's' using a 'delimiter' and return a vector with the resulting strings */
@@ -240,6 +257,7 @@ inline unique_ptr<FunctionData> OmlGenBind(ClientContext &context, TableFunction
         std::getline(file, line);
         if (line.substr(0, 6) == "schema") {
             auto parts = split(line, ' ');
+            parts.pop_back();
             if (parts[2] != "_experiment_metadata") {
                 // second schema contains table name
                 tableName = parts[2];
@@ -261,6 +279,7 @@ inline unique_ptr<FunctionData> OmlGenBind(ClientContext &context, TableFunction
     return_types = {LogicalType::INTEGER};
     names = {"amount of tuples inserted in '" + tableName + "'"};
 
+    file.close();
     return std::move(result);
 }
 
@@ -284,10 +303,17 @@ inline void OmlGen(ClientContext &context, TableFunctionInput &data_p, DataChunk
     auto &catalog = Catalog::GetCatalog(context, bind_data.catalog);
     auto &tbl_catalog = catalog.GetEntry<TableCatalogEntry>(context, bind_data.schema, bind_data.table);
 
-    std::string line;         // buffer for a line
-    std::getline(file, line); // skip empty line
+    std::string line; // buffer for a line
+
+    // Skip the initial metadata
+    for (int i = 0; i < 9; i++) {
+        if (!std::getline(file, line)) {
+            throw InternalException("File doesn't contain the expected metadata");
+        }
+    }
 
     idx_t row_count = 0;
+    idx_t column_amount = bind_data.column_types.size();
     while (std::getline(file, line)) {
         std::istringstream iss(line);    // split line
         std::string field;               // buffer for a field
@@ -297,10 +323,25 @@ inline void OmlGen(ClientContext &context, TableFunctionInput &data_p, DataChunk
             fields.push_back(field);
         }
 
-        if (fields.size() == bind_data.column_types.size()) {
-            // insert values of line into a tuple and call AppendData
+        if (fields.size() == column_amount) {
+            vector<duckdb::Value> data;
+            for (idx_t i = 0; i < column_amount; i++) {
+                // convert parsed value to duckdb::Value and insert it into data
+                data.push_back(convertToValue(fields[i], bind_data.column_types[i]));
+            }
+
+            // append row to table
+            AppendData(context, bind_data, catalog, tbl_catalog, data);
+
+            // increment row count
+            row_count++;
         }
     }
+
+    output.SetValue(0, 0, Value::INTEGER(row_count));
+    output.SetCardinality(1);
+    bind_data.finished_reading = true;
+    file.close();
 }
 
 static void LoadInternal(DatabaseInstance &instance) {
