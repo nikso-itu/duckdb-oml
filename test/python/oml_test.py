@@ -13,6 +13,6 @@ def duckdb_conn():
     return conn
 
 def test_oml(duckdb_conn):
-    duckdb_conn.execute("SELECT oml('Sam') as value;");
+    duckdb_conn.execute("SELECT * from OmlGen('data/oml_testing/test.oml');");
     res = duckdb_conn.fetchall()
-    assert(res[0][0] == "Oml Sam 🐥");
+    assert(res[0][0] == "20");

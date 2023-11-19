@@ -4,15 +4,56 @@
 
 # Before we load the extension, this will fail
 statement error
-SELECT oml('Sam');
+CALL Power_Consumption_load('data/test-small.oml');
 ----
-Catalog Error: Scalar Function with name oml does not exist!
+Catalog Error: Table Function with name power_consumption_load does not exist!
+Did you mean "summary"?
 
 # Require statement will ensure this test is run with this extension loaded
 require oml
 
 # Confirm the extension works
 query I
-SELECT oml('Sam');
+SELECT * from Power_Consumption_load('data/oml_testing/test-small.oml');
 ----
-Oml Sam 🐥
+7
+
+# Confirm the view exists and contains expected values
+query IIIII
+SELECT * from PC where (id == 4);
+----
+4
+1697941200.0
+0.283869
+4.87
+0.058361
+
+# Confirm the view has 7 rows
+query I
+SELECT count(*) from PC;
+----
+7
+
+# Confirm OmlGen works
+query I
+SELECT * from OmlGen('data/oml_testing/test.oml');
+----
+20
+
+# Confirm that OmlGen can read other types of OML as well
+query I
+SELECT * from OmlGen('data/oml_testing/test-small.oml');
+----
+7
+
+# Confirm that OmlGen returns expected values
+query IIIIIII
+SELECT * from control_node_measures_radio where (value == 2);
+----
+6.921713
+2
+2
+1689001670
+909600
+11
+-91
