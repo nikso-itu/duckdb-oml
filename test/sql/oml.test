@@ -2,25 +2,41 @@
 # description: test oml extension
 # group: [oml]
 
-# Before we load the extension, this will fail
-statement error
-CALL Power_Consumption_load('data/test-small.oml');
-----
-Catalog Error: Table Function with name power_consumption_load does not exist!
-Did you mean "summary"?
-
 # Require statement will ensure this test is run with this extension loaded
 require oml
 
+####################################
+### Power_Consumption_load tests ###
+####################################
+
 # Confirm the extension works
 query I
-SELECT * from Power_Consumption_load('data/oml_testing/test-small.oml');
+SELECT * from Power_Consumption_load('data/oml_testing/st_lrwan1_11.oml');
 ----
-7
+67725
 
-# Confirm the view exists and contains expected values
+# Confirm the table contains expected values
+query IIIIIIII
+SELECT * from Power_Consumption where node_id_seq = 10;
+----
+3.542896
+1
+10
+1697457735
+506076
+0.284480
+4.871250
+0.058361
+
+# Confirm the view exists with the same amount of rows
+query I
+SELECT count(*) from PC;
+----
+67725
+
+# Confirm the view contains expected values
 query IIIII
-SELECT * from PC where (id == 4);
+SELECT * from PC where id = 4;
 ----
 4
 1697941200.0
@@ -28,27 +44,30 @@ SELECT * from PC where (id == 4);
 4.87
 0.058361
 
-# Confirm the view has 7 rows
+# Confirm the table can be removed
 query I
-SELECT count(*) from PC;
+DROP TABLE Power_Consumption;
 ----
-7
+
+####################
+### OmlGen tests ###
+####################
 
 # Confirm OmlGen works
 query I
-SELECT * from OmlGen('data/oml_testing/test.oml');
+SELECT * from OmlGen('data/oml_testing/st_lrwan1_11.oml');
 ----
-20
+67725
 
-# Confirm that OmlGen can read other types of OML as well
+# Confirm that OmlGen can read other OML schema
 query I
-SELECT * from OmlGen('data/oml_testing/test-small.oml');
+SELECT * from OmlGen('data/oml_testing/st_lrwan1_15.oml');
 ----
-7
+1204
 
-# Confirm that OmlGen returns expected values
+# Confirm that 'st_lrwan1_15' contains expected values
 query IIIIIII
-SELECT * from control_node_measures_radio where (value == 2);
+SELECT * from control_node_measures_radio where value = 2;
 ----
 6.921713
 2
@@ -57,3 +76,26 @@ SELECT * from control_node_measures_radio where (value == 2);
 909600
 11
 -91
+
+# Confirm that 'st_lrwan1_11' contains expected values
+query IIIIIIII
+SELECT * from control_node_measures_consumption where value = 20;
+----
+3.606484
+1
+20
+1697457735
+551237
+0.284480
+4.870000
+0.058361
+
+# Confirm that both tables can be dropped
+query I
+DROP TABLE control_node_measures_consumption;
+----
+
+query I
+DROP TABLE control_node_measures_radio;
+----
+
